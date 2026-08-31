@@ -13,7 +13,17 @@ BarWidget {
   id: root
   moduleName: "iainlennox.omaamp"
 
-  readonly property var svc: bar?.shell ? bar.shell.serviceFor("iainlennox.omaamp") : null
+  property var svc: null
+  function _refreshSvc() {
+    svc = (root.bar && root.bar.shell) ? root.bar.shell.serviceFor("iainlennox.omaamp") : null
+  }
+  Component.onCompleted: _refreshSvc()
+
+  Connections {
+    target: root.bar ? root.bar.shell.pluginRegistry : null
+    function onPluginsChanged() { root._refreshSvc() }
+  }
+
   readonly property bool hasTrack: svc ? svc.hasTrack : false
   readonly property bool playing: svc ? svc.playbackState === "playing" : false
   readonly property string title: svc && svc.nowPlaying ? svc.nowPlaying.title : ""
@@ -22,7 +32,7 @@ BarWidget {
     : (!svc.connected ? "Connecting…" : (title ? (title + (artist ? " – " + artist : "")) : "OmaAmp"))
 
   property bool opened: false
-  function open() { opened = true }
+  function open() { _refreshSvc(); opened = true }
   function close() { opened = false }
 
   implicitWidth: btnRow.implicitWidth + Style.space(14)

@@ -26,14 +26,13 @@ Item {
   property string query: ""
 
   readonly property var items: service ? service.items : []
-  readonly property var q: service ? service.queue : []
   readonly property var nowPlaying: service ? service.nowPlaying : null
   readonly property bool connected: service ? service.connected : false
   readonly property string coverSource: nowPlaying ? (service ? service.coverUrl(nowPlaying) : "") : ""
   readonly property bool shuffle: service ? service.shuffle : false
   readonly property string repeat: service ? service.repeat : "off"
   readonly property bool svcWide: service ? (service.currentView === "tracks" || service.currentView === "album" || service.currentView === "search") : false
-  readonly property bool canPlayAll: service ? (service.currentView === "tracks" || service.currentView === "album" || service.currentView === "search") && root.items.length > 0 : false
+  readonly property bool canPlayAll: service ? (service.currentView === "tracks" || service.currentView === "album" || service.currentView === "search") && (service ? service.items.length : 0) > 0 : false
 
   property var navItems: [
     { label: "Home",    icon: "󰋋", view: "home" },
@@ -179,6 +178,7 @@ Item {
         // sidebar
         ColumnLayout {
           Layout.preferredWidth: 180
+          Layout.fillWidth: false
           Layout.fillHeight: true
           spacing: 4
           Layout.leftMargin: 10
@@ -297,8 +297,8 @@ Item {
                 elide: Text.ElideRight
               }
               Text {
-                visible: root.items.length > 0
-                text: root.items.length + " items"
+                visible: (service ? service.items.length : 0) > 0
+                text: (service ? service.items.length : 0) + " items"
                 color: root.faint
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
@@ -320,7 +320,7 @@ Item {
 
               states: State {
                 name: "empty"
-                when: (service ? service.itemsLoading : false) || root.items.length === 0
+                when: (service ? service.itemsLoading : false) || (service ? service.items.length : 0) === 0
               }
 
               ColumnLayout {
@@ -331,15 +331,25 @@ Item {
                 Text { text: "Connect a Plex server in ~/.config/omarchy/omaamp.json to browse your music library."; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption; Layout.alignment: Qt.AlignHCenter; visible: service ? !service.connected : false }
               }
 
-              ListView {
-                id: list
+              Flickable {
                 anchors.fill: parent
                 visible: parent.state !== "empty"
-                model: root.items
-                spacing: Style.space(5)
+                contentHeight: col.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
                 clip: true
                 ScrollBar.vertical: ScrollBar {}
-                delegate: BusyRow { onTap: root.playItem(modelData) }
+                Column {
+                  id: col
+                  width: parent.width
+                  spacing: Style.space(5)
+                  Repeater {
+                    model: service ? service.items : []
+                    delegate: BusyRow {
+                      width: col.width
+                      onTap: root.playItem(modelData)
+                    }
+                  }
+                }
               }
             }
           }
@@ -458,7 +468,7 @@ Item {
           id: queueList
           Layout.fillWidth: true
           Layout.fillHeight: true
-          model: root.q
+          model: service ? service.queue : []
           spacing: Style.space(4)
           clip: true
           ScrollBar.vertical: ScrollBar {}
@@ -490,11 +500,12 @@ Item {
 
   // ------------------------------------------------------------------ bits
 
-  // Content list row: cover + title/subtitle + duration.
+  // Content list row: cover + title/subtitle + duration. Takes `item`/`tap`
+  // explicitly from the ListView delegate wrapper (ListView's delegate context
+  // does not bind modelData/index down into nested `component` declarations).
   component BusyRow: Item {
     signal tap()
     required property var modelData
-    required property int index
 
     readonly property string sub: modelData.type === "artist"
       ? "Artist"
@@ -504,29 +515,48 @@ Item {
     implicitHeight: 46
 
     Rectangle { anchors.fill: parent; radius: Style.spacing.labelGap; color: m.containsMouse ? Qt.darker(root.cardBg, 1.16) : "transparent" }
-    RowLayout {
-      anchors.left: parent.left; anchors.right: parent.right
-      anchors.leftMargin: 8; anchors.rightMargin: 12
+    BorderSurface {
+      id: cover
+      x: 8
       anchors.verticalCenter: parent.verticalCenter
-      spacing: 10
-      height: parent.implicitHeight
-
-      BorderSurface {
-        width: 38; height: 38
-        radius: Style.spacing.labelGap
-        color: Qt.darker(root.cardBg, 1.22)
-        borderSpec: Border.none()
-        Image { anchors.fill: parent; anchors.margins: 1; fillMode: Image.PreserveAspectCrop; asynchronous: true; source: service ? service.coverUrl(modelData) : ""; visible: source !== "" }
-        Text { anchors.centerIn: parent; visible: parent.source === "" || service === null; text: isTrack ? "󰎇" : "󰏢"; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.body }
-      }
-      ColumnLayout {
-        spacing: 1
-        Layout.fillWidth: true
-        Text { text: modelData.title || "Untitled"; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-        Text { text: sub; color: root.sub; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideRight; Layout.fillWidth: true; visible: sub !== "" }
-      }
-      Text { text: isTrack ? root.fmtTime(modelData.duration) : ""; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption; visible: root.svcWide }
-      Text { text: isTrack ? "󰐊" : "󰒲"; color: m.containsMouse ? root.accent : root.faint; font.family: Style.font.family; font.pixelSize: Style.font.body }
+      width: 38; height: 38
+      radius: Style.spacing.labelGap
+      color: Qt.darker(root.cardBg, 1.22)
+      borderSpec: Border.none()
+      Image { anchors.fill: parent; anchors.margins: 1; fillMode: Image.PreserveAspectCrop; asynchronous: true; source: service ? service.coverUrl(modelData) : ""; visible: source !== "" }
+      Text { anchors.centerIn: parent; visible: parent.source === "" || service === null; text: isTrack ? "󰎇" : "󰏢"; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.body }
+    }
+    Column {
+      id: labelCol
+      anchors.left: cover.right
+      anchors.right: durText.left
+      anchors.leftMargin: 12
+      anchors.rightMargin: 12
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: 2
+      Text { text: modelData.title || "Untitled"; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; font.bold: true; elide: Text.ElideRight; width: parent.width }
+      Text { text: sub; color: root.sub; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideRight; width: parent.width; visible: sub !== "" }
+    }
+    Text {
+      id: durText
+      visible: root.svcWide && isTrack
+      anchors.right: playText.left
+      anchors.rightMargin: 8
+      anchors.verticalCenter: parent.verticalCenter
+      text: root.fmtTime(modelData.duration)
+      color: root.faint
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
+    Text {
+      id: playText
+      anchors.right: parent.right
+      anchors.rightMargin: 12
+      anchors.verticalCenter: parent.verticalCenter
+      text: isTrack ? "󰐊" : "󰒲"
+      color: m.containsMouse ? root.accent : root.faint
+      font.family: Style.font.family
+      font.pixelSize: Style.font.body
     }
     MouseArea {
       id: m
