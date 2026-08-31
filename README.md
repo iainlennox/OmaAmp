@@ -13,8 +13,9 @@ playback — with a now-playing widget in the status bar.
   mute) with album art and elapsed/total time.
 - **Bar widget**: a music glyph + scrolling now-playing title; left-click opens
   the player, right-click toggles play/pause.
-- **Global IPC target** `omaamp` so you can bind keys to
-  `/playPause`, `/next`, `/previous`, `/togglePlayer`.
+- **Global IPC target** `omaamp` (no-arg methods) so you can bind keys or
+  script it: `status`, `nowInfo`, `libraries`, `browse`, `playPause`, `next`,
+  `previous`, `togglePlayer`, `ping`.
 
 ## Requirements
 
