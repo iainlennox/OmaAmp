@@ -597,22 +597,8 @@ Item {
       return JSON.stringify(root.libraries)
     }
 
-    function openView(view): string {
-      root.openView(String(view || "artists"))
-      return "ok"
-    }
-
     function browse(): string {
       return JSON.stringify(root.items)
-    }
-
-    function playIndex(i): string {
-      var idx = Number(i) || 0
-      if (root.items && root.items.length) {
-        root.playItemList(root.items, idx)
-        return "ok"
-      }
-      return "empty"
     }
 
     function nowInfo(): string {
