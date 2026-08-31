@@ -1,0 +1,11 @@
+{
+  "server": "http://192.168.1.10:32400",
+  "token": "",
+  "clientIdentifier": "OmaAmp",
+  "autoConnect": true,
+  "transcode": false,
+  "audioBitrate": 320,
+  "outputDevice": "",
+  "refreshIntervalSeconds": 0,
+  "defaultView": "home"
+}

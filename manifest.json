@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "iainlennox.omaamp",
+  "name": "OmaAmp",
+  "version": "0.1.0",
+  "author": "Iain Lennox",
+  "description": "Plex music player for the Omarchy shell. Browse your Plex music library and play it in the style of Plexamp / Winamp.",
+  "kinds": [
+    "service",
+    "overlay",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "overlay": "Window.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaAmp",
+    "description": "Plex music player: browser, search, queue and now-playing",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "left"
+  }
+}

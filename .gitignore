@@ -1,0 +1,15 @@
+# Local Plex credentials / settings (never commit the real token).
+config/omaamp.json
+config/*.local.json
+
+# Runtime artifacts
+*.sock
+*.log
+.nojekyll
+.sync/
+
+# Editor cruft
+*.swp
+*.tmp
+__pycache__/
+*.pyc
