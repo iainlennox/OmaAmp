@@ -10,7 +10,7 @@ playback — with a now-playing widget in the status bar.
 
 ## What it gives you
 
-- **Player window** (a layer-shell overlay, summoned from the bar or a keybind):
+- **Player panel** (a bar-anchored popup that drops down below the status bar):
   library browser (artists / albums / songs), search, track queue, and full
   transport controls (play/pause, next/prev, seek, shuffle, repeat, volume,
   mute) with album art and elapsed/total time.
@@ -28,13 +28,30 @@ playback — with a now-playing widget in the status bar.
 
 ## Install
 
-This repo is the plugin source. Deploy it into the Omarchy user plugin
-directory (a symlink so edits hot-reload):
+From the marketplace (recommended), clone and enable it as an Omarchy shell
+plugin:
+
+```bash
+omarchy plugin add https://github.com/iainlennox/OmaAmp.git --enable
+```
+
+Or deploy this repo directly as a symlink (so edits hot-reload):
 
 ```bash
 ln -sfn "$PWD" ~/.config/omarchy/plugins/iainlennox.omaamp
 omarchy plugin enable iainlennox.omaamp --section left
 ```
+
+## Remove
+
+```bash
+omarchy plugin remove iainlennox.omaamp
+rm -f ~/.config/omarchy/omaamp.json   # optional: drop saved Plex credentials
+```
+
+Removal stops the playback engine (the mpv bridge is self-cleaning) and removes
+the bar widget and service. Your Plex token is only ever stored in
+`~/.config/omarchy/omaamp.json`, never in the plugin or its code.
 
 ## Configure
 
