@@ -83,8 +83,9 @@ Item {
   FileView {
     id: cfgFile
     path: root.configPath
-    watchChanges: false
+    watchChanges: true
     printErrors: false
+    onFileChanged: reload()
     onLoaded: {
       var parsed = {}
       try { parsed = JSON.parse(text()) || {} } catch (e) { parsed = {} }
@@ -590,6 +591,39 @@ Item {
     function previous(): string {
       root.previous()
       return "ok"
+    }
+
+    function libraries(): string {
+      return JSON.stringify(root.libraries)
+    }
+
+    function openView(view): string {
+      root.openView(String(view || "artists"))
+      return "ok"
+    }
+
+    function browse(): string {
+      return JSON.stringify(root.items)
+    }
+
+    function playIndex(i): string {
+      var idx = Number(i) || 0
+      if (root.items && root.items.length) {
+        root.playItemList(root.items, idx)
+        return "ok"
+      }
+      return "empty"
+    }
+
+    function nowInfo(): string {
+      return JSON.stringify({
+        title: root.nowPlaying ? root.nowPlaying.title : "",
+        artist: root.nowPlaying ? (root.nowPlaying.artistTitle || root.nowPlaying.artist || "") : "",
+        state: root.playbackState,
+        position: root.position,
+        duration: root.duration,
+        queueLength: root.queue.length
+      })
     }
 
     function ping(): string {

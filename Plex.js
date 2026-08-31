@@ -133,12 +133,12 @@ function normalizeItem(raw) {
   r.art = raw.art || raw.thumb || ""
   r._thumb = raw.thumb || raw.art || ""
   r._art = raw.art || ""
-  r.artist = raw.originalTitle || raw.artist || ""
+  r.artist = raw.originalTitle || raw.artist || raw.grandparentTitle || ""
   r.album = raw.album || raw.parentTitle || ""
-  r.artistKey = raw.parentKey || ""
-  r.albumKey = raw.grandparentKey || ""
-  r.artistTitle = raw.artist || raw.parentTitle || ""
-  r.albumTitle = raw.album || raw.grandparentTitle || ""
+  r.artistKey = raw.parentKey || raw.grandparentKey || ""
+  r.albumKey = raw.grandparentKey || raw.parentKey || ""
+  r.artistTitle = raw.artist || raw.originalTitle || raw.grandparentTitle || raw.parentTitle || ""
+  r.albumTitle = raw.album || raw.parentTitle || ""
   r.grandparentTitle = raw.grandparentTitle || ""
   r.parentTitle = raw.parentTitle || ""
   r.viewGroup = String(raw.viewGroup || raw.type || "")
@@ -186,23 +186,22 @@ function fromMetadata(container) {
 function fromSearch(container) {
   var c = unpadded(container)
   var out = []
-  var items = c.Metadata || []
-  for (var i = 0; i < items.length; i++) {
-    var raw = items[i]
+  // /library/search returns SearchResult[] each wrapping a Metadata object.
+  var srs = c.SearchResult || []
+  for (var i = 0; i < srs.length; i++) {
+    var raw = srs[i] && srs[i].Metadata ? srs[i].Metadata : null
+    if (!raw) raw = (c.Metadata || [])[i]
+    if (!raw) continue
     var it = normalizeItem(raw)
     var t = it.type
-    it.kind = ""
     if (t === "artist") it.kind = "artist"
     else if (t === "album") it.kind = "album"
     else if (t === "track") it.kind = "track"
-    else if (it.viewGroup === "album") it.kind = "album"
     else if (it.viewGroup === "track") it.kind = "track"
-    else if (it.viewGroup === "artist") it.kind = "artist"
-    if (!it.kind) {
-      if (it.album) it.kind = "track"
-      else it.kind = "track"
-    }
-    it._thumb = raw.thumb || ""
+    else if (it.viewGroup === "album") it.kind = "album"
+    else if (it.album) it.kind = "track"
+    else it.kind = "track"
+    it._thumb = raw.thumb || raw.art || ""
     it._art = raw.art || ""
     it.fileKey = partKeyOf(raw)
     if (it.fileKey) it.kind = "track"
@@ -217,28 +216,32 @@ function sectionsPath() {
   return "/library/sections"
 }
 
+// Music library browsing. This server build does not expose the named
+// `/library/sections/{id}/artists|albums|tracks` routes, so use the `type`
+// filter on `/all` instead (artist=8, album=9, track=10).
 function sectionArtistsPath(sectionId) {
-  return "/library/sections/" + sectionId + "/artists"
+  return "/library/sections/" + sectionId + "/all?type=8"
 }
 
 function sectionAlbumsPath(sectionId) {
-  return "/library/sections/" + sectionId + "/albums"
+  return "/library/sections/" + sectionId + "/all?type=9"
 }
 
 function sectionTracksPath(sectionId) {
-  return "/library/sections/" + sectionId + "/tracks"
+  return "/library/sections/" + sectionId + "/all?type=10"
 }
 
-function sectionAllPath(sectionId, which) {
-  // `which` is one of artists | albums | tracks | playlists
-  return "/library/sections/" + sectionId + "/" + String(which)
+function sectionAllPath(sectionId) {
+  return "/library/sections/" + sectionId + "/all"
 }
 
 function childrenPath(key) {
   var k = String(key || "")
-  if (k.indexOf("/library/metadata/") === 0) return k + "/children"
-  if (k.indexOf("/library/") === 0) return "/library/metadata/" + k.replace("/library/", "") + "/children"
-  return "/library/metadata/" + k + "/children"
+  // Some server builds already return the children path as the item key.
+  if (/\/children$/.test(k)) return k
+  if (k.indexOf("/library/metadata/") === 0) return k.replace(/\/$/, "") + "/children"
+  if (k.indexOf("/library/") === 0) return "/library/metadata/" + k.replace("/library/", "").replace(/\/$/, "") + "/children"
+  return "/library/metadata/" + k.replace(/\/$/, "") + "/children"
 }
 
 function searchPath(query) {
