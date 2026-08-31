@@ -5,6 +5,9 @@ Media Server, streams the audio locally with `mpv`, and gives you a
 Plexamp-/Winamp-style window to browse your library, search, queue and control
 playback — with a now-playing widget in the status bar.
 
+<img width="1049" height="677" alt="image" src="https://github.com/user-attachments/assets/42e5d8d6-e3d3-404a-8a57-f23c33be68f2" />
+
+
 ## What it gives you
 
 - **Player window** (a layer-shell overlay, summoned from the bar or a keybind):
