@@ -33,6 +33,20 @@ def log(msg):
     sys.stderr.flush()
 
 
+def mpv_preexec():
+    """Kill mpv (SIGTERM) if this bridge process dies — even by SIGKILL.
+
+    Without this, a hard-killed bridge orphans an idle mpv that holds onto the
+    IPC socket, leaving strays across shell restarts.
+    """
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        libc.prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except Exception:
+        pass
+
+
 def send(sock, obj):
     try:
         sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
@@ -69,7 +83,8 @@ def main():
 
     mpv_proc = subprocess.Popen(MPV_ARGS + ["--input-ipc-server=" + sock_path] +
                                 ["--volume=" + volume],
-                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, preexec_fn=mpv_preexec)
 
     sock = None
     state = {"time": 0.0, "duration": 0.0, "playing": False, "paused": False, "volume": 100, "muted": False, "idle": True}

@@ -68,6 +68,7 @@ Item {
   Component.onDestruction: teardown()
 
   function teardown() {
+    root._tearingDown = true
     if (ctrlProc.running) {
       sendCtrl({ cmd: "quit" })
     }
@@ -132,6 +133,14 @@ Item {
       root.connected = true
       root.configurePlayer()
       listLibraries()
+      // The identity endpoint omits friendlyName on some builds; fetch it.
+      fetchApi("/", null, function(res) {
+        try {
+          var j = JSON.parse(res)
+          var mc = j.MediaContainer || j
+          if (mc.friendlyName) root.serverName = "" + mc.friendlyName
+        } catch (e) { /* ignore */ }
+      })
     })
   }
 
@@ -463,8 +472,18 @@ Item {
       if (root.playbackState === "playing" || root.playbackState === "paused") {
         root.playbackState = "stopped"
       }
+      if (root.connected && !root._tearingDown) respawnTimer.restart()
     }
   }
+
+  Timer {
+    id: respawnTimer
+    interval: 1500
+    repeat: false
+    onTriggered: if (root.connected && !root._tearingDown) root.configurePlayer()
+  }
+
+  property bool _tearingDown: false
 
   function startMpv(url, offsetSec) {
     if (!mpvReady) {
