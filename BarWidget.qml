@@ -3,9 +3,11 @@ import Quickshell
 import qs.Ui
 import qs.Commons
 
-// Now-playing bar widget for OmaAmp. Left-click opens/closes the player window,
-// right-click toggles play/pause, scroll wheel skips tracks. Uses a full-widget
-// MouseArea (like the built-in media widget) so clicks always register.
+// OmaAmp bar widget. The music glyph sits in the status bar; left-click drops
+// the player panel down below the bar at this widget's position, right-click
+// toggles play/pause, scroll wheel skips tracks. Exposes the open()/close()/
+// opened contract so `omarchy-shell omaamp togglePlayer` (and the bar host)
+// can also summon the popup.
 
 BarWidget {
   id: root
@@ -19,18 +21,21 @@ BarWidget {
   readonly property string status: !svc ? "OmaAmp"
     : (!svc.connected ? "Connecting…" : (title ? (title + (artist ? " – " + artist : "")) : "OmaAmp"))
 
-  implicitWidth: row.implicitWidth + Style.space(14)
+  property bool opened: false
+  function open() { opened = true }
+  function close() { opened = false }
+
+  implicitWidth: btnRow.implicitWidth + Style.space(14)
   implicitHeight: barSize
 
   Row {
-    id: row
+    id: btnRow
     anchors.centerIn: parent
     spacing: Style.space(6)
 
     Text {
-      id: glyph
       anchors.verticalCenter: parent.verticalCenter
-      text: playing ? "󰎇" : "󰎇"
+      text: "󰎇"
       color: root.bar ? root.bar.barForeground : Color.foreground
       font.family: root.bar ? root.bar.fontFamily : Style.font.family
       font.pixelSize: Style.font.body
@@ -38,7 +43,6 @@ BarWidget {
     }
 
     Text {
-      id: label
       anchors.verticalCenter: parent.verticalCenter
       text: root.title + (root.artist ? "  ·  " + root.artist : "")
       color: root.bar ? root.bar.barForeground : Color.foreground
@@ -64,7 +68,8 @@ BarWidget {
       } else if (mouse.button === Qt.RightButton) {
         root.bar.run("omarchy-shell omaamp playPause")
       } else {
-        root.bar.run("omarchy-shell shell toggle iainlennox.omaamp '{}'")
+        if (root.opened) root.close()
+        else root.open()
       }
     }
     onWheel: function(wheel) {
@@ -74,5 +79,23 @@ BarWidget {
     }
     onEntered: if (root.bar) root.bar.showTooltip(root, root.status)
     onExited: if (root.bar) root.bar.hideTooltip(root)
+  }
+
+  PopupCard {
+    id: popup
+    anchorItem: root
+    bar: root.bar
+    owner: root
+    open: root.opened
+    triggerMode: "click"
+    padding: 0
+    contentWidth: popup.fittedContentWidth(1040)
+    contentHeight: popup.fittedContentHeight(640)
+
+    PlayerPanel {
+      anchors.fill: parent
+      service: root.svc
+      onDismiss: root.close()
+    }
   }
 }
