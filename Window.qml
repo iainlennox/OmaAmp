@@ -292,7 +292,7 @@ Item {
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
               Layout.topMargin: 8
-              visible: root.sectionList.count > 0
+              visible: sectionList.count > 0
             }
 
             ListView {
@@ -342,8 +342,13 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: Qt.darker(root.cardBg, 1.04)
-            border.left: 1
-            border.color: Qt.darker(root.cardBg, 1.16)
+            Rectangle {
+              anchors.top: parent.top
+              anchors.bottom: parent.bottom
+              anchors.left: parent.left
+              width: 1
+              color: Qt.darker(root.cardBg, 1.16)
+            }
 
             ColumnLayout {
               anchors.fill: parent
@@ -422,9 +427,6 @@ Item {
                   ScrollBar.vertical: ScrollBar {}
 
                   delegate: BusyRow {
-                    required property var modelData
-                    required property int index
-      //                width: list.width
                     onTap: root.playItem(modelData)
                   }
                 }
@@ -617,8 +619,13 @@ Item {
         width: 320
         visible: root.showQueue
         color: Qt.darker(root.cardBg, 1.08)
-        border.left: 1
-        border.color: Qt.darker(root.cardBg, 1.16)
+        Rectangle {
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+          anchors.left: parent.left
+          width: 1
+          color: Qt.darker(root.cardBg, 1.16)
+        }
         radius: root.radius
 
         ColumnLayout {
