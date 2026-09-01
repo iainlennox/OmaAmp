@@ -127,6 +127,7 @@ function normalizeItem(raw) {
   r.title = titleOf(raw) || "Untitled"
   r.titleSort = raw.titleSort || r.title
   r.year = raw.year || 0
+  r.trackCount = Math.max(0, Math.round(Number(raw.leafCount || raw.childCount || 0))) || 0
   r.durationMs = millisecondsOf(raw)
   r.duration = secondsOf(raw)
   r.thumb = raw.thumb || raw.art || ""

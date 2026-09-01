@@ -7,5 +7,9 @@
   "audioBitrate": 320,
   "outputDevice": "",
   "refreshIntervalSeconds": 0,
-  "defaultView": "home"
+  "defaultView": "home",
+  "visualizer": true,
+  "visualizerBands": 12,
+  "equalizer": true,
+  "eqEnabled": false
 }

@@ -22,7 +22,11 @@ Item {
     token: "",
     clientIdentifier: "OmaAmp",
     transcode: false,
-    audioBitrate: 320
+    audioBitrate: 320,
+    visualizer: true,
+    visualizerBands: 12,
+    equalizer: true,
+    eqEnabled: false
   })
 
   // ------------------------------------------------------------- connection
@@ -55,6 +59,37 @@ Item {
   property bool shuffle: false
   property string repeat: "off"           // off | all | one
 
+  // ------------------------------------------------------------- spectrum
+  // Real-time analyser data, produced by bin/omaamp-visualizer.py (CAVA).
+  // `spectrumAvailable` is false until the analyser has genuinely connected;
+  // `spectrumBands`/`spectrumPeaks` are fixed-length 0..1 arrays (current and
+  // peak-hold level per band) refreshed ~25Hz by the producer.
+  property var spectrumBands: []
+  property var spectrumPeaks: []
+  property bool spectrumReady: false
+  property bool spectrumAvailable: false
+  readonly property int spectrumBandCount: (Number(root.cfg.visualizerBands) > 0) ? Math.round(Number(root.cfg.visualizerBands)) : 12
+
+  // ------------------------------------------------------------- equaliser
+  // The EQ is 100% mpv-side audio filters (FFmpeg peaking filters set through
+  // the `af` property, which mpv updates live and carries across tracks).
+  // The shell only edits this state; bin/omaamp-mpv.py forwards the `af` set.
+  property bool eqEnabled: root.cfg.eqEnabled === true
+  readonly property bool eqAvailable: root.cfg.equalizer !== false
+  property string eqPreset: "FLAT"
+  property var eqBandFreqs: [60, 170, 310, 600, 1000, 3000, 6000, 12000]
+  property var eqGains: [0, 0, 0, 0, 0, 0, 0, 0]
+  property var eqPresets: ({
+    FLAT: [0, 0, 0, 0, 0, 0, 0, 0],
+    "BASS+": [6, 5, 3, 1, 0, 0, 0, 0],
+    "BASS-": [-6, -5, -3, -1, 0, 0, 0, 0],
+    "TREBLE+": [0, 0, 0, 0, 1, 3, 5, 6],
+    "TREBLE-": [0, 0, 0, 0, -1, -3, -5, -6],
+    VOCAL: [-2, -1, 0, 2, 3, 2, 1, 0],
+    ROCK: [4, 3, 1, 0, -1, 0, 2, 3],
+    ELECTRONIC: [6, 4, 1, 0, -1, 2, 3, 4]
+  })
+
   readonly property string playIcon: playbackState === "playing" ? "󰏤" : "󰐊"
   readonly property bool hasTrack: nowPlaying !== null
   readonly property bool atEnd: queueIndex >= 0 && queueIndex >= queue.length - 1
@@ -73,6 +108,10 @@ Item {
       sendCtrl({ cmd: "quit" })
     }
     ctrlProc.running = false
+    if (visProc.running) {
+      visProc.write(JSON.stringify({ cmd: "quit" }) + "\n")
+    }
+    visProc.running = false
   }
 
   // ------------------------------------------------------------- config
@@ -97,11 +136,13 @@ Item {
       }
       root.cfg = next
       root.error = root.cfg.server ? "" : "No Plex server configured (config/omaamp.json)"
+      root.startVisualizer()
       if (root.cfg.autoConnect !== false) root.connect()
     }
     onLoadFailed: {
       root.error = "Missing config: " + root.configPath
       root.connected = false
+      root.startVisualizer()
     }
   }
 
@@ -235,6 +276,17 @@ Item {
     })
   }
 
+  // Play an entire album: fetch its children once, then reuse the existing
+  // queue/playback path instead of duplicating it. No N+1 — one request total.
+  function playAlbum(item) {
+    if (!item || !item.key) return
+    fetchApi(Plex.childrenPath(item.key), null, function(res) {
+      var list = []
+      try { list = Plex.fromMetadata(JSON.parse(res)) } catch (e) { list = [] }
+      playItemList(list, 0)
+    })
+  }
+
   function setBrowseItems(view, list) {
     root.items = list
     if (view === "tracks") root.tracks = list
@@ -281,7 +333,9 @@ Item {
     }
     root.itemsLoading = true
     var serial = ++root.searchSerial
-    fetchApi(Plex.searchPath(q), { "type": "10" }, function(res) {
+    // No `type` filter: search artists, albums and tracks. Plex.fromSearch()
+    // already tags each hit with `kind` so the UI can tell them apart.
+    fetchApi(Plex.searchPath(q), null, function(res) {
       if (serial !== root.searchSerial) return
       var list = []
       try { list = Plex.fromSearch(JSON.parse(res)) } catch (e) { list = [] }
@@ -438,6 +492,10 @@ Item {
     (root.manifest && root.manifest.__sourceDir ? root.manifest.__sourceDir : (home + "/Work/OmaAmp"))
     + "/bin/omaamp-mpv.py"
 
+  readonly property string visHelperPath:
+    (root.manifest && root.manifest.__sourceDir ? root.manifest.__sourceDir : (home + "/Work/OmaAmp"))
+    + "/bin/omaamp-visualizer.py"
+
   function configurePlayer() {
     if (ctrlProc.running) return
     ctrlProc.command = ["python3", root.helperPath, "--socket", root.sockPath, "--volume", String(root.volume)]
@@ -460,6 +518,7 @@ Item {
     onStarted: {
       root.mpvReady = true
       root.mpvDied = false
+      root.applyEq()
       if (root._pendingLoad) {
         var p = root._pendingLoad
         root._pendingLoad = null
@@ -525,6 +584,121 @@ Item {
     if (obj.duration !== undefined) root.duration = Number(obj.duration) || 0
     if (obj.volume !== undefined) root.volume = Math.max(0, Math.min(100, Math.round(Number(obj.volume) || 0)))
     if (obj.muted !== undefined) root.muted = obj.muted === true
+  }
+
+  // ------------------------------------------------------------- visualiser
+  //
+  // Real audio spectrum via bin/omaamp-visualizer.py (which owns CAVA). One
+  // persistent process while the plugin is loaded — started once, stopped on
+  // destruction, never duplicated, and never respawned after it exits (so a
+  // missing CAVA hides the visualiser quietly instead of error-looping).
+
+  function startVisualizer() {
+    if (root.cfg.visualizer === false) return
+    if (root._visUnavailable) return
+    if (visProc.running) return
+    visProc.command = ["python3", root.visHelperPath, "--bars", String(root.spectrumBandCount), "--rate", "25"]
+    visProc.running = true
+  }
+
+  function onVisLine(line) {
+    var obj
+    try { obj = JSON.parse(line) } catch (e) { return }
+    if (!obj) return
+    if (obj.type === "ready") {
+      root.spectrumAvailable = true
+      return
+    }
+    if (obj.type === "unavailable") {
+      root.spectrumAvailable = false
+      root.spectrumReady = false
+      root._visUnavailable = true
+      return
+    }
+    if (obj.type === "spectrum") {
+      root.spectrumBands = obj.v || []
+      root.spectrumPeaks = obj.p || []
+    }
+  }
+
+  Process {
+    id: visProc
+    running: false
+    stdinEnabled: true
+    stdout: SplitParser {
+      splitMarker: "\n"
+      onRead: function(line) { root.onVisLine(line) }
+    }
+    stderr: StdioCollector { }
+    onStarted: {
+      root.spectrumReady = true
+    }
+    onExited: function(status) {
+      // No respawn: the analyser is a best-effort, optional enhancement.
+      // If it died (or CAVA is absent) the player keeps working; the UI
+      // hides the visualiser. Guard against the teardown path and against
+      // the "unavailable" exit which already cleared the flags.
+      root.spectrumReady = false
+      if (root.spectrumAvailable || root._visUnavailable) {
+        root.spectrumAvailable = false
+        root._visUnavailable = true
+      }
+      root.spectrumBands = []
+      root.spectrumPeaks = []
+    }
+  }
+
+  property bool _visUnavailable: false
+
+  // Debounce live fader drags so we don't flood mpv with `af` updates while the
+  // user slides; presets and the ON/OFF toggle still apply immediately.
+  Timer {
+    id: eqDebounce
+    interval: 90
+    onTriggered: root.applyEq()
+  }
+
+  // ------------------------------------------------------------- equaliser
+  //
+  // mpv exposes FFmpeg's peaking `equalizer` filter natively. We build an
+  // 8-band chain and push it through the `af` property (one live set_property,
+  // no restart, persists across tracks). Setting `af` to "" restores flat.
+
+  function eqFilterString() {
+    var parts = []
+    for (var i = 0; i < root.eqBandFreqs.length; i++) {
+      var g = Math.max(-12, Math.min(12, Math.round(Number(root.eqGains[i]) || 0)))
+      parts.push("equalizer=f=" + root.eqBandFreqs[i] + ":t=q:w=1:g=" + g)
+    }
+    return parts.join(",")
+  }
+
+  function applyEq() {
+    if (!root.mpvReady) return
+    sendCtrl({ cmd: "set", prop: "af", value: root.eqEnabled ? root.eqFilterString() : "" })
+  }
+
+  function setEqEnabled(b) {
+    root.eqEnabled = b === true
+    root.applyEq()
+  }
+
+  function setEqGain(i, db) {
+    var idx = Math.max(0, Math.min(root.eqGains.length - 1, Math.round(Number(i) || 0)))
+    var g = Math.max(-12, Math.min(12, Math.round(Number(db) || 0)))
+    var gains = root.eqGains.slice()
+    gains[idx] = g
+    root.eqGains = gains
+    root.eqPreset = "CUSTOM"
+    eqDebounce.restart()
+  }
+
+  function setEqPreset(name) {
+    var p = root.eqPresets[name]
+    if (!p) return
+    root.eqGains = p.slice()
+    root.eqPreset = name
+    if (root.eqEnabled) root.applyEq()
   }
 
   // ------------------------------------------------------------- requests

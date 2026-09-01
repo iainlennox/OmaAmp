@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "iainlennox.omaamp",
   "name": "OmaAmp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "Iain Lennox",
   "description": "Plex music player for the Omarchy shell. A bar-widget popup that drops down below the status bar: browse your Plex music library and play it in the style of Plexamp / Winamp.",
   "kinds": [
