@@ -5,6 +5,15 @@
 // JSON instead of XML). Everything here is intentionally Quickshell/JS-safe:
 // no classes, no arrow functions, no template literals, no `const`.
 
+// ------------------------------------------------------------------ limits
+// Defence against unbounded network-controlled data: these caps bound how many
+// items we keep and how long any single string field may be. Values are
+// generous enough for real libraries but bound memory regardless.
+
+var MAX_ITEMS = 4000           // max items retained per view/response
+var MAX_FIELD = 512            // max chars for any normalized string field
+var MAX_QUEUE = 2000           // max tracks retained in the play queue
+
 // ------------------------------------------------------------------ utilities
 
 function has(obj, key) {
@@ -13,6 +22,13 @@ function has(obj, key) {
 
 function bool(v) {
   return v === true || v === "1" || v === "true"
+}
+
+// Truncate a server-supplied string to MAX_FIELD chars.
+function cap(s) {
+  if (s === null || s === undefined) return ""
+  s = String(s)
+  return s.length > MAX_FIELD ? s.substring(0, MAX_FIELD) : s
 }
 
 // Strip trailing slashes and build a request URL with the auth token.
@@ -35,8 +51,8 @@ function apiUrl(cfg, path, extraParams) {
 
 function titleOf(obj) {
   if (!obj) return ""
-  if (obj.title) return String(obj.title)
-  if (obj.titleSort) return String(obj.titleSort)
+  if (obj.title) return cap(obj.title)
+  if (obj.titleSort) return cap(obj.titleSort)
   return ""
 }
 
@@ -60,20 +76,43 @@ function partKeyOf(item) {
 }
 
 // Thumbnail / art URLs are server-relative and require the auth token.
+// Only http/https schemes are ever used as image sources — never file://,
+// data:, javascript:, etc. Absolute URLs are only accepted when their host is
+// exactly the configured Plex server, and relative paths are resolved against
+// that same server. This keeps a hostile Plex response from pointing QML's
+// Image at an arbitrary host or a local file path.
+function trustedResource(cfg, resource) {
+  if (!resource) return ""
+  var s = String(resource)
+  if (s.length > MAX_FIELD) return ""
+  var l = s.toLowerCase()
+  var server = String(cfg.server || "").replace(/\/+$/, "").toLowerCase()
+  if (l.indexOf("http://") === 0 || l.indexOf("https://") === 0) {
+    var hostStart = s.indexOf("://") + 3
+    var slash = s.indexOf("/", hostStart)
+    var host = slash === -1 ? s.substring(hostStart) : s.substring(hostStart, slash)
+    if (slash === -1) return ""
+    // Only trust the configured server's host.
+    var serverHostStart = server.indexOf("://") + 3
+    var serverSlash = server.indexOf("/", serverHostStart)
+    var serverHost = serverSlash === -1 ? server.substring(serverHostStart) : server.substring(serverHostStart, serverSlash)
+    if (host.toLowerCase() !== serverHost.toLowerCase()) return ""
+    return apiUrl(cfg, s)
+  }
+  // Relative server path: safe to resolve against the configured server.
+  return apiUrl(cfg, s)
+}
+
 function thumbUrl(cfg, obj) {
   if (!obj) return ""
   var t = obj.thumb || obj.art || obj.thumbnail || obj.poster || ""
-  if (!t) return ""
-  if (String(t).indexOf("http") === 0) return String(t)
-  return apiUrl(cfg, String(t))
+  return trustedResource(cfg, t)
 }
 
 function artUrl(cfg, obj) {
   if (!obj) return ""
   var t = obj.art || obj.thumb || obj.background || ""
-  if (!t) return ""
-  if (String(t).indexOf("http") === 0) return String(t)
-  return apiUrl(cfg, String(t))
+  return trustedResource(cfg, t)
 }
 
 // Build a playable stream URL for a track item object (already normalized).
@@ -118,50 +157,58 @@ function millisecondsOf(item) {
 // ------------------------------------------------------------------ normalization
 
 // Normalize one Plex library object into a display-friendly record.
+// All string fields are capped (MAX_FIELD) so no single hostile field can
+// balloon memory or justify an oversized UI element.
 function normalizeItem(raw) {
   if (!raw) return null
   var r = {}
-  r.key = String(raw.key || raw.ratingKey || "")
-  r.ratingKey = String(raw.ratingKey || "")
-  r.type = String(raw.type || raw.viewGroup || "")
+  r.key = cap(raw.key || raw.ratingKey || "")
+  r.ratingKey = cap(raw.ratingKey || "")
+  r.type = String(raw.type || raw.viewGroup || "").substring(0, 32)
   r.title = titleOf(raw) || "Untitled"
-  r.titleSort = raw.titleSort || r.title
-  r.year = raw.year || 0
+  r.titleSort = cap(raw.titleSort || r.title)
+  r.year = Math.max(0, Math.round(Number(raw.year) || 0))
   r.trackCount = Math.max(0, Math.round(Number(raw.leafCount || raw.childCount || 0))) || 0
   r.durationMs = millisecondsOf(raw)
   r.duration = secondsOf(raw)
-  r.thumb = raw.thumb || raw.art || ""
-  r.art = raw.art || raw.thumb || ""
-  r._thumb = raw.thumb || raw.art || ""
-  r._art = raw.art || ""
-  r.artist = raw.originalTitle || raw.artist || raw.grandparentTitle || ""
-  r.album = raw.album || raw.parentTitle || ""
-  r.artistKey = raw.parentKey || raw.grandparentKey || ""
-  r.albumKey = raw.grandparentKey || raw.parentKey || ""
-  r.artistTitle = raw.artist || raw.originalTitle || raw.grandparentTitle || raw.parentTitle || ""
-  r.albumTitle = raw.album || raw.parentTitle || ""
-  r.grandparentTitle = raw.grandparentTitle || ""
-  r.parentTitle = raw.parentTitle || ""
-  r.viewGroup = String(raw.viewGroup || raw.type || "")
-  r.fileKey = partKeyOf(raw)
+  r.thumb = cap(raw.thumb || raw.art || "")
+  r.art = cap(raw.art || raw.thumb || "")
+  r._thumb = r.thumb
+  r._art = r.art
+  r.artist = cap(raw.originalTitle || raw.artist || raw.grandparentTitle || "")
+  r.album = cap(raw.album || raw.parentTitle || "")
+  r.artistKey = cap(raw.parentKey || raw.grandparentKey || "")
+  r.albumKey = cap(raw.grandparentKey || raw.parentKey || "")
+  r.artistTitle = cap(raw.artist || raw.originalTitle || raw.grandparentTitle || raw.parentTitle || "")
+  r.albumTitle = cap(raw.album || raw.parentTitle || "")
+  r.grandparentTitle = cap(raw.grandparentTitle || "")
+  r.parentTitle = cap(raw.parentTitle || "")
+  r.viewGroup = String(raw.viewGroup || raw.type || "").substring(0, 32)
+  r.fileKey = cap(partKeyOf(raw))
   return r
+}
+
+// Collect at most MAX_ITEMS normalized records from an array.
+function capList(items) {
+  if (!items || !Array.isArray(items)) return []
+  return items.length > MAX_ITEMS ? items.slice(0, MAX_ITEMS) : items
 }
 
 // Extract music sections from a `/library/sections` response.
 function fromSections(container) {
   var c = unpadded(container)
   var out = []
-  var dirs = c.Directory || []
+  var dirs = capList(c.Directory)
   for (var i = 0; i < dirs.length; i++) {
     var d = dirs[i]
     var type = String(d.type || "")
     // Music libraries report type "artist" (Plex types music as artists).
     var isMusic = type === "artist" || type === "music" || type === "artist,album,track"
     out.push({
-      key: String(d.key || d.id || ""),
-      type: type,
+      key: cap(d.key || d.id || ""),
+      type: type.substring(0, 32),
       title: titleOf(d) || "Music",
-      viewGroup: String(d.viewGroup || ""),
+      viewGroup: cap(d.viewGroup || ""),
       music: isMusic
     })
   }
@@ -171,7 +218,7 @@ function fromSections(container) {
 function fromMetadata(container) {
   var c = unpadded(container)
   var out = []
-  var items = c.Metadata || []
+  var items = capList(c.Metadata)
   for (var i = 0; i < items.length; i++) {
     var it = normalizeItem(items[i])
     if (it.key) {
@@ -188,10 +235,11 @@ function fromSearch(container) {
   var c = unpadded(container)
   var out = []
   // /library/search returns SearchResult[] each wrapping a Metadata object.
-  var srs = c.SearchResult || []
+  var srs = capList(c.SearchResult)
+  var md = capList(c.Metadata)
   for (var i = 0; i < srs.length; i++) {
     var raw = srs[i] && srs[i].Metadata ? srs[i].Metadata : null
-    if (!raw) raw = (c.Metadata || [])[i]
+    if (!raw) raw = md[i]
     if (!raw) continue
     var it = normalizeItem(raw)
     var t = it.type
@@ -204,7 +252,7 @@ function fromSearch(container) {
     else it.kind = "track"
     it._thumb = raw.thumb || raw.art || ""
     it._art = raw.art || ""
-    it.fileKey = partKeyOf(raw)
+    it.fileKey = cap(partKeyOf(raw))
     if (it.fileKey) it.kind = "track"
     out.push(it)
   }

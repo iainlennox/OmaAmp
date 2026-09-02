@@ -26,7 +26,8 @@ Item {
     visualizer: true,
     visualizerBands: 12,
     equalizer: true,
-    eqEnabled: false
+    eqEnabled: false,
+    allowInsecureHttp: false
   })
 
   // ------------------------------------------------------------- connection
@@ -135,6 +136,8 @@ Item {
         if (parsed[k2] !== undefined && parsed[k2] !== null) next[k2] = parsed[k2]
       }
       root.cfg = next
+      // Enforce a private config so the Plex token is protected at rest.
+      root.secureConfigFile()
       root.error = root.cfg.server ? "" : "No Plex server configured (config/omaamp.json)"
       root.startVisualizer()
       if (root.cfg.autoConnect !== false) root.connect()
@@ -146,6 +149,71 @@ Item {
     }
   }
 
+  // The Plex token lives in ~/.config/omarchy/omaamp.json. Ensure the config
+  // file is private (0600) so the token is not world-readable at rest. We only
+  // adjust the file, not the shared ~/.config/omarchy directory, which other
+  // Omarchy plugins may rely on.
+  function secureConfigFile() {
+    cfgPermProc.command = ["sh", "-c", "[ -e \"$1\" ] && chmod 600 \"$1\"; true", "sh", root.configPath]
+    cfgPermProc.running = true
+  }
+
+  Process {
+    id: cfgPermProc
+    running: false
+    stdout: StdioCollector { }
+    stderr: StdioCollector { }
+  }
+
+  // Preflight the runtime toolchain (mpv, python3, curl) so missing binaries
+  // are surfaced clearly instead of failing silently at playback time.
+  function preflight() {
+    progProc.command = ["sh", "-c",
+      "for b in mpv python3 curl; do command -v \"$b\" >/dev/null 2>&1 || echo \"missing:$b\"; done; echo done"]
+    progProc.running = true
+  }
+
+  property var missingTools: []
+
+  Process {
+    id: progProc
+    running: false
+    stdout: SplitParser {
+      splitMarker: "\n"
+      onRead: function(line) {
+        if (line === "done") return
+        if (line.indexOf("missing:") === 0) {
+          var t = line.substring(8)
+          var m = root.missingTools.slice()
+          if (m.indexOf(t) === -1) m.push(t)
+          root.missingTools = m
+        }
+      }
+    }
+    onExited: root.checkToolchain()
+  }
+
+  function checkToolchain() {
+    if (root.missingTools.length > 0) {
+      root.error = "Missing runtime dependencies: " + root.missingTools.join(", ") + " (see README)"
+    } else if (root.cfg.server) {
+      root.error = ""
+    }
+  }
+
+  // Verify the connection transport is safe: HTTPS is required unless the user
+  // has explicitly opted into an insecure LAN connection via allowInsecureHttp.
+  function transportError() {
+    var s = String(root.cfg.server || "")
+    if (!s) return "No Plex server configured"
+    if (s.toLowerCase().indexOf("https://") === 0) return ""
+    if (s.toLowerCase().indexOf("http://") === 0) {
+      if (root.cfg.allowInsecureHttp === true) return ""
+      return "Insecure HTTP server. Use https://, or set \"allowInsecureHttp\": true in omaamp.json only for a private LAN you trust."
+    }
+    return "Server URL must start with http:// or https://"
+  }
+
   // ------------------------------------------------------------- connection
 
   function connect() {
@@ -153,6 +221,16 @@ Item {
       root.error = "Set server + token in ~/.config/omarchy/omaamp.json"
       return
     }
+    // Refuse to send the token over an unencrypted link unless the user has
+    // explicitly opted into an insecure LAN connection.
+    var tErr = root.transportError()
+    if (tErr) {
+      root.connecting = false
+      root.connected = false
+      root.error = tErr
+      return
+    }
+    root.preflight()
     root.connecting = true
     root.error = ""
     fetchApi("/identity", null, function(res) {
@@ -167,7 +245,7 @@ Item {
       } catch (e) { ok = false }
       if (!ok) {
         root.connected = false
-        root.error = "Could not reach Plex / bad token"
+        if (!root.error) root.error = "Could not reach Plex / bad token"
         return
       }
       root.serverName = "" + name
@@ -358,6 +436,7 @@ Item {
     }
     if (q.length === 0) return
     if (root.shuffle) q = shuffle(q)
+    if (q.length > Plex.MAX_QUEUE) q = q.slice(0, Plex.MAX_QUEUE)
     root.queue = q
     root.queueIndex = Math.max(0, Math.min(index, q.length - 1))
     loadCurrent(0)
@@ -371,6 +450,7 @@ Item {
     if (!item) return
     var q = root.queue.slice()
     q.push(item)
+    if (q.length > Plex.MAX_QUEUE) q = q.slice(q.length - Plex.MAX_QUEUE)
     root.queue = q
   }
 
@@ -495,6 +575,10 @@ Item {
   readonly property string visHelperPath:
     (root.manifest && root.manifest.__sourceDir ? root.manifest.__sourceDir : (home + "/Work/OmaAmp"))
     + "/bin/omaamp-visualizer.py"
+
+  readonly property string httpHelperPath:
+    (root.manifest && root.manifest.__sourceDir ? root.manifest.__sourceDir : (home + "/Work/OmaAmp"))
+    + "/bin/omaamp-http.py"
 
   function configurePlayer() {
     if (ctrlProc.running) return
@@ -716,10 +800,14 @@ Item {
     if (_reqQueue.length === 0) return
     _apiBusy = true
     var req = _reqQueue.shift()
-    var url = Plex.apiUrl(root.cfg, req.path, req.params)
-    apiProc.command = ["curl", "-sS", "-m", "25", "-H", "Accept: application/json", "-H", "X-Plex-Client-Identifier: OmaAmp", url]
+    // Route the request through the private HTTP bridge (bin/omaamp-http.py):
+    // it attaches the auth token via a header file (never argv/URL on the
+    // command line) and enforces a hard response-size cap. The `path` already
+    // carries any query string from the caller.
+    apiProc.command = ["python3", root.httpHelperPath]
     apiProc.running = true
     _activeReq = req
+    apiProc.write(JSON.stringify({ path: req.path }) + "\n")
   }
 
   property var _activeReq: null
@@ -727,15 +815,26 @@ Item {
   Process {
     id: apiProc
     running: false
+    stdinEnabled: true
     stdout: StdioCollector {
       id: apiOut
       onStreamFinished: {
         var req = root._activeReq
-        var res = text || ""
+        var res = ""
+        var ok = false
+        try {
+          var parsed = JSON.parse(text || "{}")
+          if (parsed.ok === true) { res = parsed.body; ok = true }
+          else if (parsed.reason === "missing-config") root.error = "Set server + token in ~/.config/omarchy/omaamp.json"
+          else if (parsed.reason === "too-large") root.error = "Plex response too large (capped by OmaAmp)"
+          else if (parsed.reason === "curl-spawn") root.error = "curl not found or failed to start"
+          else if (parsed.reason === "curl-error") root.error = "Plex request failed (HTTP error)"
+          else root.error = "Plex request failed"
+        } catch (e) { /* non-JSON / empty response */ }
         root._activeReq = null
         root._apiBusy = false
         if (req && req.cb) {
-          try { req.cb(res) } catch (e) { console.warn("omaamp api cb error: " + e) }
+          try { req.cb(ok ? res : "") } catch (e) { console.warn("omaamp api cb error: " + e) }
         }
         root.pumpApi()
       }

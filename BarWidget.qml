@@ -58,6 +58,7 @@ BarWidget {
       color: root.bar ? root.bar.barForeground : Color.foreground
       font.family: root.bar ? root.bar.fontFamily : Style.font.family
       font.pixelSize: Style.font.bodySmall
+      textFormat: Text.PlainText
       visible: root.hasTrack && !root.bar.vertical && root.title !== ""
       elide: Text.ElideRight
       clip: true

@@ -33,6 +33,7 @@ import os
 import select
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,8 @@ import time
 
 DEFAULT_BARS = 12
 DEFAULT_RATE = 25.0
+
+MAX_STDIN_LINE = 1 << 20  # cap on any single control command (1 MiB)
 
 
 def log(msg):
@@ -80,6 +83,73 @@ def find_cava():
     return shutil.which("cava")
 
 
+def verify_private_dir(d, create=True):
+    """Ensure `d` is a real, non-symlink directory owned by us with 0700.
+
+    If `create` is True and the dir does not exist, create it with
+    `os.makedirs(exist_ok=True)` (which refuses to follow an existing symlink
+    on the final component). We then re-verify ownership/mode so a pre-existing
+    hostile directory is never trusted.
+    """
+    if create:
+        try:
+            os.makedirs(d, mode=0o700, exist_ok=True)
+        except OSError as exc:
+            log("could not create dir %s: %s" % (d, exc))
+            return False
+    try:
+        st = os.lstat(d)
+    except OSError:
+        return False
+    if not stat.S_ISDIR(st.st_mode) or os.path.islink(d):
+        return False
+    if st.st_uid != os.geteuid():
+        log("refusing %s: not owned by us" % d)
+        return False
+    if st.st_mode & 0o077:
+        try:
+            os.chmod(d, 0o700)
+        except OSError as exc:
+            log("could not tighten %s: %s" % (d, exc))
+            return False
+    return True
+
+
+def atomic_write_private(path, contents):
+    """Create a file atomically with 0600, refusing to follow symlinks.
+
+    `os.open(..., O_NOFOLLOW)` rejects opening a pre-existing symlink; the
+    file is 0600 from the moment it is created, so no intermediate world-
+    readable state exists.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    try:
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+    except AttributeError:
+        flags = flags  # best-effort on platforms without O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError as exc:
+        log("could not open %s: %s" % (path, exc))
+        return False
+    try:
+        os.write(fd, contents)
+        os.fchmod(fd, 0o600)
+        os.close(fd)
+    except OSError as exc:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        log("could not write %s: %s" % (path, exc))
+        return False
+    return True
+
+
 def build_config(bars, runtime_dir):
     """Write a CAVA config that streams raw bars for our own rendering.
 
@@ -87,6 +157,9 @@ def build_config(bars, runtime_dir):
     (PipeWire's pipewire-pulse) and `source = auto` monitors the default output
     sink. `[output] method = raw` + `target = -` writes 8-bit bar values
     (0..255) straight to stdout, one `bars`-sized frame at a time.
+
+    The config is created in a private, owner-verified directory with an
+    atomic, no-follow, 0600 write.
     """
     conf = """\
 [general]
@@ -109,10 +182,11 @@ channels = 2
 noise_reduction = 0.5
 """ % bars
 
-    os.makedirs(runtime_dir, exist_ok=True)
+    if not verify_private_dir(runtime_dir):
+        return None
     cfg_path = os.path.join(runtime_dir, "omaamp-cava.conf")
-    with open(cfg_path, "w") as fh:
-        fh.write(conf)
+    if not atomic_write_private(cfg_path, conf.encode("utf-8")):
+        return None
     return cfg_path
 
 
@@ -157,6 +231,10 @@ def main():
         return 0
 
     cfg_path = build_config(bars, runtime_dir)
+    if not cfg_path:
+        emit(json.dumps({"type": "unavailable", "reason": "config"}))
+        log("could not create a private CAVA config")
+        return 0
     command = [cava, "-p", cfg_path]
     if min_source:
         command += ["--source", min_source]
@@ -188,6 +266,7 @@ def main():
     buf = bytearray()
     current = bytearray(bars)
     have_frame = [False] * bars
+    stdin_buf = b""
 
     # Envelope + peak-hold per bar (0..1). Attack is instant (retro feel);
     # main bars recede to ~0 in ~0.55s, peaks linger ~2x longer.
@@ -222,12 +301,18 @@ def main():
                 data = os.read(sys.stdin.fileno(), 4096)
                 if not data:
                     break
-                for part in data.decode("utf-8", "replace").split("\n"):
-                    part = part.strip()
-                    if not part:
+                stdin_buf += data
+                if len(stdin_buf) > MAX_STDIN_LINE:
+                    log("stdin frame too large; dropping input")
+                    stdin_buf = b""
+                    continue
+                while b"\n" in stdin_buf:
+                    line, stdin_buf = stdin_buf.split(b"\n", 1)
+                    line = line.strip()
+                    if not line:
                         continue
                     try:
-                        cmd = json.loads(part)
+                        cmd = json.loads(line)
                     except Exception:
                         continue
                     if cmd.get("cmd") == "quit":
@@ -257,6 +342,11 @@ def main():
                 proc.kill()
             except Exception:
                 pass
+        try:
+            if cfg_path and os.path.exists(cfg_path):
+                os.unlink(cfg_path)
+        except OSError:
+            pass
     return 0
 
 

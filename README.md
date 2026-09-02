@@ -29,10 +29,17 @@ playback — with a now-playing widget in the status bar.
 ## Requirements
 
 - Omarchy (Quickshell shell)
-- `mpv`, `python3`, `curl`
+- `mpv`, `python3`, `curl` (all preflighted at startup; see [Dependencies](#dependencies))
 - `cava` (optional — only needed for the spectrum visualiser; the player and
   equaliser work without it)
 - A Plex Media Server and an auth token
+
+OmaAmp does **not** bundle `mpv`, `python3`, or `curl`. On startup it preflights
+the toolchain and shows a clear message (in the player connection pill) if any
+binary is missing, rather than failing silently later. Install them from your
+distro's official repositories — e.g. on Debian/Ubuntu `apt install mpv python3
+curl` and on Arch/Fedora `pacman -S mpv python curl` (and optionally `cava` via
+`apt install cava` / `pacman -S cava`).
 
 ## Install
 
@@ -67,12 +74,16 @@ Copy the template and fill in your server + token:
 
 ```bash
 cp config/omaamp.json.example ~/.config/omarchy/omaamp.json
+chmod 600 ~/.config/omarchy/omaamp.json
 # edit ~/.config/omarchy/omaamp.json
 ```
 
+OmaAmp also enforces a private (`0600`) mode on this file automatically at
+startup, so the token is protected at rest even if you forget the `chmod`.
+
 ```json
 {
-  "server": "http://192.168.1.10:32400",
+  "server": "https://192.168.1.10:32400",
   "token": "YOUR_PLEX_TOKEN",
   "clientIdentifier": "OmaAmp",
   "autoConnect": true,
@@ -80,11 +91,14 @@ cp config/omaamp.json.example ~/.config/omarchy/omaamp.json
   "audioBitrate": 320,
   "outputDevice": "",
   "refreshIntervalSeconds": 0,
-  "defaultView": "home"
+  "defaultView": "home",
+  "allowInsecureHttp": false
 }
 ```
 
-- `server` — your Plex Media Server base URL.
+- `server` — your Plex Media Server base URL. **Use `https://`.** Plain `http://`
+  is refused unless you explicitly set `allowInsecureHttp: true` below; OmaAmp
+  will not send your token or metadata over an unencrypted link by default.
 - `token` — your Plex auth token (see below). **Never commit this.**
 - `transcode` — `false` for direct play of the original audio; `true` to have
   Plex transcode to an mp3 stream first (more compatible, lower bandwidth).
@@ -95,6 +109,9 @@ cp config/omaamp.json.example ~/.config/omarchy/omaamp.json
 - `equalizer` — `true` to enable the graphic equaliser controls (default).
 - `eqEnabled` — start with the equaliser applied (`true`) or flat (`false`,
   default). You can also toggle it live in the EQ drawer.
+- `allowInsecureHttp` — set to `true` only to allow a plain-`http://` server you
+  trust on a private, isolated LAN. This is an explicit, prominent opt-in: while
+  `false` (the default), OmaAmp refuses to connect over HTTP at all.
 
 ### Getting a Plex token
 
@@ -197,6 +214,38 @@ config/omaamp.json.example
 
 ## Security
 
-Your Plex token lives in `~/.config/omarchy/omaamp.json` — outside this repo.
-`config/omaamp.json` is git-ignored so your real credentials never get
-committed. Keep the token out of any screenshot or log.
+This section documents the mitigations OmaAmp applies so you can review them.
+
+**Token at rest.** Your Plex token lives in `~/.config/omarchy/omaamp.json` —
+outside this repo. `config/omaamp.json` is git-ignored, and the plugin forces
+the file to `0600` at startup. Keep the token out of any screenshot or log.
+
+**Token in transit.** HTTP API requests are routed through
+`bin/omaamp-http.py`, which reads the token from disk and hands it to `curl`
+through a private, owner-verified, `0600` header file — the token never appears
+in a process command line (`argv`) or in the request URL on the command line.
+Audio stream URLs still carry the token, as Plex requires it, but they are
+passed to `mpv` over the plugin's private unix socket, never on a command line.
+Plain `http://` is refused by default; an `https://` server (or an explicit
+`allowInsecureHttp: true` opt-in for a private, trusted LAN) is required.
+
+**Bounded network memory.** `bin/omaamp-http.py` caps every API response at
+20 MiB and drops curl failures/oversized responses with a clean error.
+`Plex.js` caps the number of items retained per view (4000), the number of
+queue entries (2000), and the length of every normalized string field (512
+chars), so a hostile or malformed Plex response cannot balloon memory.
+
+**Safe temporary files.** `omaamp-visualizer.py` (CAVA) and `omaamp-http.py`
+write their config/header files in a private, owner-verified directory and
+create files atomically with `O_NOFOLLOW` and `0600` permissions, never
+following or overwriting pre-planted symlinks. The CAVA config is removed on
+teardown.
+
+**Server-controlled text and images.** Every title, artist, album, and library
+name rendered from Plex is displayed with `textFormat: Text.PlainText`, so
+server-supplied rich text cannot be interpreted. Image URLs are constrained to
+the configured server over `http`/`https` only.
+
+**Dependencies.** `mpv`, `python3`, and `curl` are preflighted at startup; a
+clear message is shown if any are missing, and you install them from your
+distro's official repositories (see [Requirements](#requirements)).

@@ -119,6 +119,9 @@ def main():
         return 1
 
     buf = b""
+    stdin_buf = b""
+    MAX_STDIN_LINE = 1 << 20      # cap on any single control command (1 MiB)
+    MAX_SOCKET_BUF = 1 << 20      # cap on un-newlined mpv data (1 MiB)
 
     def handle_mpv_line(line):
         nonlocal state, last_tick
@@ -198,8 +201,14 @@ def main():
                 data = os.read(sys.stdin.fileno(), 4096)
                 if not data:
                     break
-                for part in data.decode("utf-8", "replace").split("\n"):
-                    if part.strip() and handle_stdin_line(part) is False:
+                stdin_buf += data
+                if len(stdin_buf) > MAX_STDIN_LINE:
+                    log("stdin frame too large; dropping input")
+                    stdin_buf = b""
+                    continue
+                while b"\n" in stdin_buf:
+                    line, stdin_buf = stdin_buf.split(b"\n", 1)
+                    if line.strip() and handle_stdin_line(line) is False:
                         running = False
                         break
             if sock in rlist:
@@ -207,6 +216,9 @@ def main():
                 if not data:
                     break
                 buf += data
+                if len(buf) > MAX_SOCKET_BUF:
+                    log("mpv socket buffer exceeded; dropping")
+                    buf = b""
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     handle_mpv_line(line.decode("utf-8", "replace"))

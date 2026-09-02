@@ -394,6 +394,7 @@ Item {
                   font.pixelSize: Style.font.bodySmall
                   font.bold: sel
                   elide: Text.ElideRight
+                  textFormat: Text.PlainText
                   Layout.fillWidth: true
                 }
               }
@@ -432,6 +433,7 @@ Item {
                 font.family: Style.font.family
                 font.pixelSize: Style.font.heading
                 font.bold: true
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
                 elide: Text.ElideRight
               }
@@ -483,7 +485,7 @@ Item {
                   Layout.fillWidth: true
                   Text { text: "NOW PLAYING"; color: root.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true }
                   Item { Layout.fillWidth: true }
-                  Text { text: root.nowPlaying ? (root.nowPlaying.albumTitle || root.nowPlaying.album || "") : ""; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  Text { text: root.nowPlaying ? (root.nowPlaying.albumTitle || root.nowPlaying.album || "") : ""; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption; textFormat: Text.PlainText }
                 }
 
                 RowLayout {
@@ -515,9 +517,9 @@ Item {
                   ColumnLayout {
                     spacing: 2
                     Layout.alignment: Qt.AlignVCenter
-                    Text { text: root.nowPlaying ? root.nowPlaying.title : "Nothing playing"; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.title; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-                    Text { text: root.nowPlaying ? (root.nowPlaying.artistTitle || root.nowPlaying.artist || "") : ""; color: root.sub; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; elide: Text.ElideRight; Layout.fillWidth: true }
-                    Text { text: root.nowPlaying ? (root.nowPlaying.albumTitle || root.nowPlaying.album || "") : ""; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideRight; Layout.fillWidth: true; visible: root.nowPlaying !== null && (root.nowPlaying.albumTitle || root.nowPlaying.album) }
+                    Text { text: root.nowPlaying ? root.nowPlaying.title : "Nothing playing"; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.title; font.bold: true; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true }
+                    Text { text: root.nowPlaying ? (root.nowPlaying.artistTitle || root.nowPlaying.artist || "") : ""; color: root.sub; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true }
+                    Text { text: root.nowPlaying ? (root.nowPlaying.albumTitle || root.nowPlaying.album || "") : ""; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true; visible: root.nowPlaying !== null && (root.nowPlaying.albumTitle || root.nowPlaying.album) }
                   }
                   Item { Layout.fillWidth: true }
                 }
@@ -674,9 +676,9 @@ Item {
                 spacing: 2
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
-                Text { text: root.nowPlaying ? root.nowPlaying.title : "Nothing playing"; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.subtitle; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
-                Text { text: root.nowPlaying ? (root.nowPlaying.artistTitle || root.nowPlaying.artist || "Unknown artist") : ""; color: root.sub; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; elide: Text.ElideRight; Layout.fillWidth: true; visible: root.nowPlaying !== null }
-                Text { text: root.nowPlaying ? (root.nowPlaying.albumTitle || root.nowPlaying.album || "") : ""; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideRight; Layout.fillWidth: true; visible: root.nowPlaying !== null && (root.nowPlaying.albumTitle || root.nowPlaying.album) }
+                Text { text: root.nowPlaying ? root.nowPlaying.title : "Nothing playing"; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.subtitle; font.bold: true; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true }
+                Text { text: root.nowPlaying ? (root.nowPlaying.artistTitle || root.nowPlaying.artist || "Unknown artist") : ""; color: root.sub; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true; visible: root.nowPlaying !== null }
+                Text { text: root.nowPlaying ? (root.nowPlaying.albumTitle || root.nowPlaying.album || "") : ""; color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true; visible: root.nowPlaying !== null && (root.nowPlaying.albumTitle || root.nowPlaying.album) }
               }
             }
           }
@@ -897,7 +899,7 @@ Item {
               anchors.leftMargin: 12; anchors.rightMargin: 8
               anchors.verticalCenter: parent.verticalCenter
               spacing: 8
-              Text { text: modelData.title; color: cur ? root.accent : root.fg; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; font.bold: cur; elide: Text.ElideRight; Layout.fillWidth: true }
+              Text { text: modelData.title; color: cur ? root.accent : root.fg; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; font.bold: cur; elide: Text.ElideRight; textFormat: Text.PlainText; Layout.fillWidth: true }
               Text { text: root.fmtTime(modelData.duration); color: root.faint; font.family: Style.font.family; font.pixelSize: Style.font.caption }
             }
             MouseArea {
@@ -1000,8 +1002,8 @@ Item {
       anchors.rightMargin: 10
       anchors.verticalCenter: parent.verticalCenter
       spacing: 2
-      Text { text: modelData.title || "Untitled"; color: _isNow ? root.accent : root.fg; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; font.bold: true; elide: Text.ElideRight; width: parent.width }
-      Text { text: subtitleText(); color: root.sub; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideRight; width: parent.width; visible: subtitleText() !== "" }
+      Text { text: modelData.title || "Untitled"; color: _isNow ? root.accent : root.fg; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; font.bold: true; elide: Text.ElideRight; textFormat: Text.PlainText; width: parent.width }
+      Text { text: subtitleText(); color: root.sub; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideRight; textFormat: Text.PlainText; width: parent.width; visible: subtitleText() !== "" }
     }
 
     RowLayout {

@@ -1,5 +1,5 @@
 {
-  "server": "http://192.168.1.10:32400",
+  "server": "https://192.168.1.10:32400",
   "token": "",
   "clientIdentifier": "OmaAmp",
   "autoConnect": true,
@@ -11,5 +11,6 @@
   "visualizer": true,
   "visualizerBands": 12,
   "equalizer": true,
-  "eqEnabled": false
+  "eqEnabled": false,
+  "allowInsecureHttp": false
 }
